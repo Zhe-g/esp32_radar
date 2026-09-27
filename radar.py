@@ -2,530 +2,733 @@ import math
 import time
 
 
-# =========================
-# RGB565 colors
-# =========================
-
-BLACK = 0x0000
-GREEN = 0x07E0
-DARK_GREEN = 0x0320
-RED = 0xF800
-WHITE = 0xFFFF
-CYAN = 0x07FF
-DARK_CYAN = 0x03EF
-YELLOW = 0xFFE0
-GRAY = 0x8410
-DARK_GRAY = 0x4208
-
-
 class Radar:
+
+    # =========================================================
+    # Colors RGB565
+    # =========================================================
+
+    BLACK = 0x0000
+    WHITE = 0xFFFF
+
+    GRID_COLOR = 0x03EF
+
+    SCAN_COLOR = 0x07FF
+
+    TARGET_COLOR = 0xF800
+
+    CENTER_COLOR = 0x07E0
+
+    # =========================================================
+    # Constructor
+    # =========================================================
 
     def __init__(
         self,
         servo,
-        ultrasonic,
+        sensor,
         tft,
         min_angle=10,
         max_angle=170,
-        step=3,
+        step=5,
         max_distance=200,
-        settle_ms=30
+        settle_ms=10
     ):
 
         self.servo = servo
-        self.ultrasonic = ultrasonic
+        self.sensor = sensor
         self.tft = tft
 
         self.min_angle = min_angle
         self.max_angle = max_angle
+
         self.step = step
 
         self.max_distance = max_distance
+
         self.settle_ms = settle_ms
 
-        # Current servo angle
-        self.angle = min_angle
+        # =====================================================
+        # Radar center
+        # =====================================================
 
-        # 1 = increasing
-        # -1 = decreasing
+        self.cx = self.tft.width // 2
+
+        self.cy = self.tft.height - 15
+
+        self.radius = min(
+            self.tft.width // 2 - 5,
+            self.tft.height - 30
+        )
+
+        # =====================================================
+        # Scan state
+        # =====================================================
+
+        self.angle = self.min_angle
+
         self.direction = 1
 
         self.scanning = False
 
+        # =====================================================
+        # Current scan targets
+        #
+        # 只保存当前这一轮扫描
+        # =====================================================
+
+        self.targets = []
+
+        # =====================================================
+        # Statistics
+        # =====================================================
+
+        self.scan_count = 0
+
         self.last_distance = -1
 
-        self.nearest_distance = -1
-        self.nearest_angle = -1
+        # 上一次扫描线角度
+        self.last_line_angle = None
 
-        # Current sweep data
-        self.points = []
-
-        # Radar geometry
-        self.center_x = 120
-        self.center_y = 200
-
-        self.radius = 100
-
-        # Previous scan line
-        self.previous_line = None
-
-        # Used for display update
-        self.background_ready = False
-
-    # =========================
+    # =========================================================
     # Start
-    # =========================
+    # =========================================================
 
     def start(self):
 
         self.scanning = True
 
-        self.points = []
-
-        self.nearest_distance = -1
-        self.nearest_angle = -1
-
         self.angle = self.min_angle
+
         self.direction = 1
 
-        self.previous_line = None
+        self.targets = []
 
-        self.servo.move(self.angle)
+        self.scan_count = 0
 
-        # Draw complete radar once
+        self.last_distance = -1
+
+        self.last_line_angle = None
+
+        # 绘制初始雷达
         self.draw_background()
 
-        self.draw_dynamic()
+        # 舵机移动到起点
+        self.servo.move(
+            self.angle
+        )
 
-    # =========================
-    # Stop
-    # =========================
+        print("[RADAR] START")
 
-    def stop(self):
+    # =========================================================
+    # Polar -> XY
+    #
+    # 0°   左
+    # 90°  上
+    # 180° 右
+    # =========================================================
 
-        self.scanning = False
+    def polar_to_xy(
+        self,
+        angle,
+        distance
+    ):
 
-        self.draw_dynamic()
+        rad = math.radians(angle)
 
-    # =========================
-    # Radar background
-    # =========================
+        x = int(
+            self.cx +
+            math.cos(rad) * distance
+        )
+
+        y = int(
+            self.cy -
+            math.sin(rad) * distance
+        )
+
+        return x, y
+
+    # =========================================================
+    # Draw radar background
+    # =========================================================
 
     def draw_background(self):
 
-        tft = self.tft
+        # 整个屏幕清黑
+        self.tft.fill(
+            self.BLACK
+        )
 
-        # Clear screen ONCE
-        tft.fill(BLACK)
-
+        # =====================================================
         # Radar circles
-        #
-        # We intentionally use only 3 circles.
-        # Fewer SPI operations.
-        for ratio in (
-            0.33,
-            0.66,
-            1.0
-        ):
+        # =====================================================
 
-            tft.circle(
-                self.center_x,
-                self.center_y,
-                int(self.radius * ratio),
-                DARK_GRAY
+        self.tft.circle(
+            self.cx,
+            self.cy,
+            self.radius,
+            self.GRID_COLOR
+        )
+
+        self.tft.circle(
+            self.cx,
+            self.cy,
+            int(self.radius * 0.75),
+            self.GRID_COLOR
+        )
+
+        self.tft.circle(
+            self.cx,
+            self.cy,
+            int(self.radius * 0.50),
+            self.GRID_COLOR
+        )
+
+        self.tft.circle(
+            self.cx,
+            self.cy,
+            int(self.radius * 0.25),
+            self.GRID_COLOR
+        )
+
+        # =====================================================
+        # Angle lines
+        # =====================================================
+
+        angles = (
+            self.min_angle,
+            30,
+            60,
+            90,
+            120,
+            150,
+            self.max_angle
+        )
+
+        for angle in angles:
+
+            x, y = self.polar_to_xy(
+                angle,
+                self.radius
             )
 
-        # Horizontal 180° / 0° line
-        tft.hline(
-            self.center_x - self.radius,
-            self.center_y,
-            self.radius * 2 + 1,
-            DARK_GRAY
-        )
+            self.tft.line(
+                self.cx,
+                self.cy,
+                x,
+                y,
+                self.GRID_COLOR
+            )
 
-        # Vertical 90° line
-        tft.vline(
-            self.center_x,
-            self.center_y - self.radius,
-            self.radius + 1,
-            DARK_GRAY
-        )
+        # =====================================================
+        # Center
+        # =====================================================
 
-        # Distance labels
-        tft.text(
-            "50",
+        self.tft.fill_rect(
+            self.cx - 2,
+            self.cy - 2,
             5,
-            118,
-            GRAY,
-            1
-        )
-
-        tft.text(
-            "100",
             5,
-            92,
-            GRAY,
-            1
+            self.CENTER_COLOR
         )
 
-        tft.text(
-            "150",
-            5,
-            65,
-            GRAY,
-            1
+    # =========================================================
+    # 判断像素是不是雷达网格
+    # =========================================================
+
+    def background_pixel(
+        self,
+        x,
+        y
+    ):
+
+        dx = x - self.cx
+
+        dy = self.cy - y
+
+        distance = math.sqrt(
+            dx * dx +
+            dy * dy
         )
 
-        tft.text(
-            "200",
-            5,
-            39,
-            GRAY,
-            1
+        # 超出雷达范围
+        if distance > self.radius + 1:
+            return self.BLACK
+
+        # =====================================================
+        # 圆弧
+        # =====================================================
+
+        circles = (
+            self.radius,
+            self.radius * 0.75,
+            self.radius * 0.50,
+            self.radius * 0.25
         )
 
-        # Static title
-        tft.text(
-            "ESP32 RADAR",
-            70,
-            5,
-            WHITE,
-            1
+        for r in circles:
+
+            if abs(distance - r) <= 1.0:
+
+                return self.GRID_COLOR
+
+        # =====================================================
+        # 角度线
+        # =====================================================
+
+        if distance > 2:
+
+            angle = math.degrees(
+                math.atan2(
+                    dy,
+                    dx
+                )
+            )
+
+            if angle < 0:
+                angle += 360
+
+            angles = (
+                self.min_angle,
+                30,
+                60,
+                90,
+                120,
+                150,
+                self.max_angle
+            )
+
+            for a in angles:
+
+                if abs(angle - a) <= 0.6:
+
+                    return self.GRID_COLOR
+
+        # =====================================================
+        # Center
+        # =====================================================
+
+        if (
+            abs(dx) <= 2 and
+            abs(dy) <= 2
+        ):
+
+            return self.CENTER_COLOR
+
+        return self.BLACK
+
+    # =========================================================
+    # Restore one pixel
+    # =========================================================
+
+    def restore_pixel(
+        self,
+        x,
+        y
+    ):
+
+        if x < 0:
+            return
+
+        if x >= self.tft.width:
+            return
+
+        if y < 0:
+            return
+
+        if y >= self.tft.height:
+            return
+
+        color = self.background_pixel(
+            x,
+            y
         )
 
-        self.background_ready = True
+        self.tft.pixel(
+            x,
+            y,
+            color
+        )
 
-    # =========================
-    # Convert polar coordinate
-    # =========================
+    # =========================================================
+    # Erase previous scan line
+    #
+    # 不再简单使用黑线。
+    #
+    # 而是恢复成雷达背景。
+    # =========================================================
 
-    def _polar(
+    def erase_scan_line(self):
+
+        if self.last_line_angle is None:
+            return
+
+        angle = self.last_line_angle
+
+        # 使用和 line() 一样的 Bresenham 算法
+        # 保证擦除的像素和之前画线的像素完全一致。
+
+        x1, y1 = self.polar_to_xy(
+            angle,
+            self.radius
+        )
+
+        x0 = self.cx
+        y0 = self.cy
+
+        dx = abs(x1 - x0)
+
+        sx = 1 if x0 < x1 else -1
+
+        dy = -abs(y1 - y0)
+
+        sy = 1 if y0 < y1 else -1
+
+        err = dx + dy
+
+        while True:
+
+            self.restore_pixel(
+                x0,
+                y0
+            )
+
+            if (
+                x0 == x1 and
+                y0 == y1
+            ):
+                break
+
+            e2 = 2 * err
+
+            if e2 >= dy:
+
+                err += dy
+                x0 += sx
+
+            if e2 <= dx:
+
+                err += dx
+                y0 += sy
+
+        # =====================================================
+        # 恢复目标点
+        # =====================================================
+
+        self.redraw_targets()
+
+    # =========================================================
+    # Draw current scan line
+    # =========================================================
+
+    def draw_scan_line(self):
+
+        x, y = self.polar_to_xy(
+            self.angle,
+            self.radius
+        )
+
+        self.tft.line(
+            self.cx,
+            self.cy,
+            x,
+            y,
+            self.SCAN_COLOR
+        )
+
+        self.last_line_angle = self.angle
+
+    # =========================================================
+    # Add target
+    # =========================================================
+
+    def add_target(
+        self,
+        angle,
+        distance
+    ):
+
+        # 当前轮扫描中保存
+        self.targets.append(
+            (
+                angle,
+                distance
+            )
+        )
+
+        # 当前轮最多 30 个
+        if len(self.targets) > 30:
+
+            self.targets.pop(0)
+
+    # =========================================================
+    # Draw target
+    # =========================================================
+
+    def draw_target(
         self,
         angle,
         distance
     ):
 
         if distance <= 0:
-            return None
+            return
 
-        distance = min(
-            distance,
-            self.max_distance
+        if distance > self.max_distance:
+            return
+
+        # 实际距离 -> 雷达半径
+        display_distance = int(
+            distance /
+            self.max_distance *
+            self.radius
         )
 
-        r = (
-            distance
-            / self.max_distance
-            * self.radius
+        x, y = self.polar_to_xy(
+            angle,
+            display_distance
         )
 
-        rad = math.radians(angle)
+        # 边界检查
+        if x < 3:
+            return
 
-        x = int(
-            self.center_x
-            - math.cos(rad) * r
+        if x >= self.tft.width - 3:
+            return
+
+        if y < 3:
+            return
+
+        if y >= self.tft.height - 3:
+            return
+
+        # 5x5 红点
+        self.tft.fill_rect(
+            x - 2,
+            y - 2,
+            5,
+            5,
+            self.TARGET_COLOR
         )
 
-        y = int(
-            self.center_y
-            - math.sin(rad) * r
-        )
+    # =========================================================
+    # Redraw targets
+    # =========================================================
 
-        return x, y
+    def redraw_targets(self):
 
-    # =========================
-    # Current scan line
-    # =========================
+        for angle, distance in self.targets:
 
-    def _scan_line(self, angle):
+            self.draw_target(
+                angle,
+                distance
+            )
 
-        rad = math.radians(angle)
+    # =========================================================
+    # Clear all targets
+    #
+    # 通过重新绘制背景彻底删除
+    # =========================================================
 
-        x = int(
-            self.center_x
-            - math.cos(rad)
-            * self.radius
-        )
+    def clear_targets(self):
 
-        y = int(
-            self.center_y
-            - math.sin(rad)
-            * self.radius
-        )
+        self.targets = []
 
-        return (
-            self.center_x,
-            self.center_y,
-            x,
-            y
-        )
+        # 重新画完整雷达
+        self.draw_background()
 
-    # =========================
+        # 当前扫描线重新画回来
+        if self.scanning:
+
+            self.draw_scan_line()
+
+    # =========================================================
     # Scan once
-    # =========================
+    # =========================================================
 
     def scan_once(self):
 
         if not self.scanning:
             return
 
-        # Move servo
+        # =====================================================
+        # 1. 删除上一条扫描线
+        # =====================================================
+
+        self.erase_scan_line()
+
+        # =====================================================
+        # 2. Servo
+        # =====================================================
+
         self.servo.move(
             self.angle
         )
 
-        # Short settling time
-        time.sleep_ms(
-            self.settle_ms
-        )
+        # =====================================================
+        # 3. Wait
+        # =====================================================
 
-        # Measure
+        if self.settle_ms > 0:
+
+            time.sleep_ms(
+                self.settle_ms
+            )
+
+        # =====================================================
+        # 4. Ultrasonic measurement
+        # =====================================================
+
         distance = (
-            self.ultrasonic
-            .distance_cm()
+            self.sensor.distance_cm()
         )
 
         self.last_distance = distance
 
-        # Save point
-        self.points.append({
-            "angle": self.angle,
-            "distance": distance
-        })
+        # =====================================================
+        # 5. Target
+        # =====================================================
 
-        # Limit memory
-        if len(self.points) > 70:
-            self.points.pop(0)
+        if (
+            distance > 0 and
+            distance <= self.max_distance
+        ):
 
-        # Nearest object
-        if distance > 0:
+            self.add_target(
+                self.angle,
+                distance
+            )
 
-            if (
-                self.nearest_distance < 0
-                or distance < self.nearest_distance
-            ):
+        # =====================================================
+        # 6. Draw current scan line
+        # =====================================================
 
-                self.nearest_distance = distance
+        self.draw_scan_line()
 
-                self.nearest_angle = (
-                    self.angle
-                )
+        # =====================================================
+        # 7. Draw newest target
+        # =====================================================
 
-        # Update TFT immediately
-        self.draw_dynamic()
+        if (
+            distance > 0 and
+            distance <= self.max_distance
+        ):
 
-        # Calculate next angle
-        next_angle = (
-            self.angle
-            + self.direction * self.step
+            self.draw_target(
+                self.angle,
+                distance
+            )
+
+        # =====================================================
+        # 8. Next angle
+        # =====================================================
+
+        self.angle += (
+            self.direction *
+            self.step
         )
 
-        # Right edge
-        if next_angle >= self.max_angle:
+        # =====================================================
+        # 9. Right boundary
+        # =====================================================
+
+        if self.angle >= self.max_angle:
 
             self.angle = self.max_angle
 
             self.direction = -1
 
-        # Left edge
-        elif next_angle <= self.min_angle:
+        # =====================================================
+        # 10. Left boundary
+        # =====================================================
+
+        elif self.angle <= self.min_angle:
 
             self.angle = self.min_angle
 
             self.direction = 1
 
-            # Start new sweep
-            self.points = []
+            # =================================================
+            # 完成一整轮
+            # =================================================
 
-            self.nearest_distance = -1
+            self.scan_count += 1
 
-            self.nearest_angle = -1
-
-        else:
-
-            self.angle = next_angle
-
-    # =========================
-    # Draw dynamic elements
-    # =========================
-
-    def draw_dynamic(self):
-
-        if not self.background_ready:
-            self.draw_background()
-
-        tft = self.tft
-
-        # ---------------------
-        # Draw all detected dots
-        # ---------------------
-
-        for p in self.points:
-
-            pos = self._polar(
-                p["angle"],
-                p["distance"]
+            print(
+                "[RADAR] SCAN",
+                self.scan_count
             )
 
-            if pos is None:
-                continue
+            # =================================================
+            # 清除上一轮所有红点
+            # =================================================
 
-            x, y = pos
+            self.clear_targets()
 
-            if (
-                p["distance"] <= 30
-            ):
-                color = RED
-            else:
-                color = GREEN
+    # =========================================================
+    # Clear
+    # =========================================================
 
-            # 3x3 point
-            tft.fill_rect(
-                x - 1,
-                y - 1,
-                3,
-                3,
-                color
-            )
+    def clear(self):
 
-        # ---------------------
-        # Scan line
-        # ---------------------
+        self.targets = []
 
-        x0, y0, x1, y1 = (
-            self._scan_line(
-                self.angle
-            )
-        )
+        self.last_line_angle = None
 
-        # Draw current scan line.
-        #
-        # We intentionally don't erase
-        # the previous sweep completely.
-        # This creates a radar-style
-        # persistence effect.
-        tft.line(
-            x0,
-            y0,
-            x1,
-            y1,
-            CYAN
-        )
+        self.last_distance = -1
 
-        # Center
-        tft.fill_rect(
-            self.center_x - 2,
-            self.center_y - 2,
-            5,
-            5,
-            YELLOW
-        )
+        self.draw_background()
 
-        # ---------------------
-        # Header
-        # ---------------------
+    # =========================================================
+    # Stop
+    # =========================================================
 
-        # Clear only header area
-        tft.fill_rect(
-            0,
-            0,
-            240,
-            28,
-            BLACK
-        )
+    def stop(self):
 
-        tft.text(
-            "A:" + str(self.angle),
-            5,
-            5,
-            WHITE,
-            1
-        )
+        self.scanning = False
 
-        if self.last_distance > 0:
+        # 停止后重新绘制干净背景
+        self.draw_background()
 
-            dist_text = (
-                "D:"
-                + str(self.last_distance)
-            )
+        self.targets = []
 
-        else:
+        self.last_line_angle = None
 
-            dist_text = "D:--"
+        print("[RADAR] STOP")
 
-        tft.text(
-            dist_text,
-            70,
-            5,
-            WHITE,
-            1
-        )
+    # =========================================================
+    # Nearest target
+    # =========================================================
 
-        if self.nearest_distance > 0:
+    def get_nearest(self):
 
-            near_text = (
-                "N:"
-                + str(
-                    self.nearest_distance
-                )
-            )
+        if not self.targets:
+            return None
 
-        else:
+        nearest = self.targets[0]
 
-            near_text = "N:--"
+        for target in self.targets:
 
-        if (
-            self.nearest_distance > 0
-            and self.nearest_distance <= 30
-        ):
-            near_color = RED
-        else:
-            near_color = WHITE
+            if target[1] < nearest[1]:
 
-        tft.text(
-            near_text,
-            145,
-            5,
-            near_color,
-            1
-        )
+                nearest = target
 
-        # Status
-        status = (
-            "SCAN"
-            if self.scanning
-            else "STOP"
-        )
+        return nearest
 
-        tft.text(
-            status,
-            5,
-            18,
-            GREEN
-            if self.scanning
-            else YELLOW,
-            1
-        )
+    # =========================================================
+    # Status
+    # =========================================================
 
-    # =========================
-    # Web data
-    # =========================
+    def status(self):
 
-    def get_data(self):
+        nearest = self.get_nearest()
 
         return {
-            "angle": self.angle,
-
-            "distance": self.last_distance,
-
             "scanning": self.scanning,
-
-            "nearest_distance":
-                self.nearest_distance,
-
-            "nearest_angle":
-                self.nearest_angle,
-
-            "points": self.points
+            "angle": self.angle,
+            "direction": self.direction,
+            "distance": self.last_distance,
+            "target_count": len(self.targets),
+            "nearest": nearest,
+            "scan_count": self.scan_count
         }
-

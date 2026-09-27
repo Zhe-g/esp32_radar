@@ -8,7 +8,7 @@ class HCSR04:
         self,
         trig_pin,
         echo_pin,
-        max_distance=200
+        max_distance_cm=200
     ):
 
         self.trig = Pin(
@@ -21,34 +21,31 @@ class HCSR04:
             Pin.IN
         )
 
-        self.max_distance = max_distance
+        self.max_distance_cm = max_distance_cm
 
         self.trig.value(0)
 
-        time.sleep_ms(100)
+        time.sleep_ms(50)
 
     def distance_cm(self):
 
-        # 发送触发脉冲
-
+        # Trigger
         self.trig.value(0)
-
         time.sleep_us(2)
 
         self.trig.value(1)
-
         time.sleep_us(10)
 
         self.trig.value(0)
 
-        # 等待 Echo
-
         try:
 
+            # 200cm 对应约 11.7ms
+            # 留余量使用 15ms
             duration = time_pulse_us(
                 self.echo,
                 1,
-                30000
+                15000
             )
 
         except Exception:
@@ -59,22 +56,13 @@ class HCSR04:
 
             return -1
 
-        # 声速：
-        # 343 m/s
-        #
-        # 距离：
-        # t * 0.0343 / 2
+        distance = duration * 0.0343 / 2
 
-        distance = (
-            duration * 0.0343
-        ) / 2
-
-        if distance <= 0:
+        if (
+            distance <= 0
+            or distance > self.max_distance_cm
+        ):
 
             return -1
-
-        if distance > self.max_distance:
-
-            return self.max_distance
 
         return round(distance, 1)
