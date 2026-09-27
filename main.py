@@ -1,5 +1,5 @@
 # =========================================================
-# ESP32 Radar Main
+# ESP32 WiFi Radar - main.py
 # =========================================================
 
 import time
@@ -7,485 +7,180 @@ import machine
 from machine import SPI
 
 import config
-
-from st7789 import ST7789
 from servo import Servo
 from hcsr04 import HCSR04
+from st7789 import ST7789
 from radar import Radar
 from web import WebServer
 
 
 # =========================================================
-# Global
+# 工具函数
 # =========================================================
 
-tft = None
-servo = None
-sensor = None
-radar = None
-web = None
+def boot_log(message):
+    print(message)
 
 
-# =========================================================
-# Serial log
-# =========================================================
-
-def log(text):
-
-    print(
-        "[BOOT] " + str(text)
-    )
-
-
-# =========================================================
-# TFT helper
-# =========================================================
-
-def tft_text(
-    text,
-    x=5,
-    y=5,
-    color=0xFFFF
-):
-
+def show_tft(tft, line1="", line2="", line3="", line4=""):
+    """
+    在 TFT 上显示启动状态。
+    你的 ST7789 驱动只支持 ASCII，所以这里不要使用中文。
+    """
     try:
+        tft.fill(0x0000)
 
-        tft.text(
-            text,
-            x,
-            y,
-            color
-        )
+        if line1:
+            tft.text(line1, 5, 10, 0xFFFF, 2)
+
+        if line2:
+            tft.text(line2, 5, 40, 0x07E0, 1)
+
+        if line3:
+            tft.text(line3, 5, 60, 0x07E0, 1)
+
+        if line4:
+            tft.text(line4, 5, 80, 0x07E0, 1)
 
     except Exception as e:
-
-        print(
-            "[TFT]",
-            e
-        )
-
-
-def tft_clear():
-
-    try:
-
-        tft.fill(
-            0x0000
-        )
-
-    except Exception:
-        pass
-
-
-def show_boot_screen():
-
-    tft_clear()
-
-    tft_text(
-        "ESP32 RADAR",
-        5,
-        5,
-        0x07E0
-    )
-
-    tft_text(
-        "SYSTEM BOOT",
-        5,
-        20,
-        0xFFFF
-    )
-
-
-def show_step(
-    number,
-    total,
-    name,
-    status="INIT..."
-):
-
-    log(
-        "[{}/{}] {} - {}".format(
-            number,
-            total,
-            name,
-            status
-        )
-    )
-
-    try:
-
-        # 清理状态区域
-        tft.fill_rect(
-            0,
-            45,
-            config.TFT_WIDTH,
-            80,
-            0x0000
-        )
-
-        tft_text(
-            "[{}/{}]".format(
-                number,
-                total
-            ),
-            5,
-            45,
-            0x07E0
-        )
-
-        tft_text(
-            name,
-            5,
-            65,
-            0xFFFF
-        )
-
-        tft_text(
-            status,
-            5,
-            85,
-            0xFFFF
-        )
-
-    except Exception as e:
-
-        print(
-            "[TFT BOOT ERROR]",
-            e
-        )
-
-
-def show_ok():
-
-    log("OK")
-
-    try:
-
-        tft.fill_rect(
-            0,
-            85,
-            config.TFT_WIDTH,
-            20,
-            0x0000
-        )
-
-        tft_text(
-            "OK",
-            5,
-            85,
-            0x07E0
-        )
-
-    except Exception:
-        pass
-
-
-def show_error(error):
-
-    print(
-        "ERROR:",
-        error
-    )
-
-    try:
-
-        tft.fill_rect(
-            0,
-            85,
-            config.TFT_WIDTH,
-            50,
-            0x0000
-        )
-
-        tft_text(
-            "ERROR",
-            5,
-            85,
-            0xF800
-        )
-
-        tft_text(
-            str(error)[:30],
-            5,
-            105,
-            0xF800
-        )
-
-    except Exception:
-        pass
+        print("TFT STATUS ERROR:", e)
 
 
 # =========================================================
-# WiFi callback
+# STEP 1 - SPI
 # =========================================================
 
-def wifi_progress(
-    status,
-    message
-):
+boot_log("")
+boot_log("================================")
+boot_log(" ESP32 WIFI RADAR")
+boot_log(" BOOTING")
+boot_log("================================")
+boot_log("")
 
-    print(
-        "[WIFI]",
-        status,
-        message
-    )
-
-    try:
-
-        # WiFi 是第 6 步
-        tft.fill_rect(
-            0,
-            45,
-            config.TFT_WIDTH,
-            100,
-            0x0000
-        )
-
-        tft_text(
-            "[6/7]",
-            5,
-            45,
-            0x07E0
-        )
-
-        tft_text(
-            "WIFI",
-            5,
-            65,
-            0xFFFF
-        )
-
-
-        if status == "CONNECTING":
-
-            tft_text(
-                "CONNECTING",
-                5,
-                85,
-                0xFFFF
-            )
-
-            tft_text(
-                message,
-                5,
-                105,
-                0xFFFF
-            )
-
-
-        elif status == "CONNECTED":
-
-            tft_text(
-                "CONNECTED",
-                5,
-                85,
-                0x07E0
-            )
-
-            tft_text(
-                "IP:",
-                5,
-                105,
-                0xFFFF
-            )
-
-            tft_text(
-                message[:24],
-                5,
-                120,
-                0xFFFF
-            )
-
-
-        elif status == "TIMEOUT":
-
-            tft_text(
-                "TIMEOUT",
-                5,
-                85,
-                0xF800
-            )
-
-            tft_text(
-                "SKIP WIFI",
-                5,
-                105,
-                0xFFFF
-            )
-
-
-        elif status == "ERROR":
-
-            tft_text(
-                "ERROR",
-                5,
-                85,
-                0xF800
-            )
-
-            tft_text(
-                str(message)[:24],
-                5,
-                105,
-                0xF800
-            )
-
-    except Exception as e:
-
-        print(
-            "[WIFI TFT ERROR]",
-            e
-        )
-
-
-# =========================================================
-# STEP 1
-# SPI
-# =========================================================
-
-print()
-print("================================")
-print(" ESP32 WIFI RADAR")
-print(" BOOTING")
-print("================================")
-print()
-
+boot_log("[BOOT] STEP 1 - SPI")
 
 try:
-
-    log("STEP 1 - SPI")
 
     spi = SPI(
         2,
-
         baudrate=config.TFT_BAUDRATE,
-
         polarity=1,
         phase=1,
-
-        sck=machine.Pin(
-            config.TFT_SCK
-        ),
-
-        mosi=machine.Pin(
-            config.TFT_MOSI
-        )
+        sck=machine.Pin(config.TFT_SCK),
+        mosi=machine.Pin(config.TFT_MOSI)
     )
 
-    log("SPI OK")
+    boot_log("[BOOT] SPI OK")
 
 except Exception as e:
 
-    print(
-        "FATAL SPI ERROR:",
-        e
-    )
-
-    while True:
-        time.sleep(1)
+    boot_log("FATAL SPI ERROR: {}".format(e))
+    raise
 
 
 # =========================================================
-# STEP 2
-# TFT
+# STEP 2 - TFT
 # =========================================================
+
+boot_log("[BOOT] STEP 2 - TFT")
 
 try:
 
-    log("STEP 2 - TFT")
+    # -----------------------------------------------------
+    # 注意：
+    # 你的 ST7789.py 构造函数是：
+    #
+    # ST7789(
+    #     width,
+    #     height,
+    #     spi,
+    #     cs,
+    #     dc,
+    #     rst
+    # )
+    #
+    # 所以这里必须按照这个顺序传参数。
+    # -----------------------------------------------------
 
     tft = ST7789(
-        spi,
         config.TFT_WIDTH,
         config.TFT_HEIGHT,
-
-        reset=machine.Pin(
-            config.TFT_RST
-        ),
-
-        dc=machine.Pin(
-            config.TFT_DC
-        ),
-
-        cs=machine.Pin(
-            config.TFT_CS
-        )
+        spi,
+        config.TFT_CS,
+        config.TFT_DC,
+        config.TFT_RST
     )
 
-    tft.init()
+    # 你的 ST7789 驱动在 __init__() 中
+    # 已经自动完成：
+    #
+    # _reset()
+    # _init_display()
+    #
+    # 所以这里不需要 tft.init()
 
-    show_boot_screen()
+    tft.fill(0x0000)
 
-    show_step(
-        2,
-        7,
-        "TFT",
-        "INIT..."
+    boot_log("[BOOT] TFT OK")
+
+    show_tft(
+        tft,
+        "ESP32 RADAR",
+        "STEP 1 SPI OK",
+        "STEP 2 TFT OK",
+        "STARTING..."
     )
 
-    time.sleep_ms(300)
-
-    show_ok()
-
-    time.sleep_ms(300)
+    time.sleep_ms(500)
 
 except Exception as e:
 
-    print(
-        "FATAL TFT ERROR:",
-        e
-    )
-
-    while True:
-        time.sleep(1)
+    boot_log("FATAL TFT ERROR: {}".format(e))
+    raise
 
 
 # =========================================================
-# STEP 3
-# Servo
+# STEP 3 - SERVO
 # =========================================================
+
+boot_log("[BOOT] STEP 3 - SERVO")
 
 try:
-
-    show_step(
-        3,
-        7,
-        "SERVO",
-        "INIT..."
-    )
 
     servo = Servo(
         config.SERVO_PIN
     )
 
-    # 移到中间
+    # 先移动到中间位置
     servo.move(90)
 
     time.sleep_ms(500)
 
-    show_ok()
+    boot_log("[BOOT] SERVO OK")
+
+    show_tft(
+        tft,
+        "ESP32 RADAR",
+        "SPI OK",
+        "TFT OK",
+        "SERVO OK"
+    )
+
+    time.sleep_ms(500)
 
 except Exception as e:
 
-    show_error(e)
-
-    while True:
-        time.sleep(1)
+    boot_log("FATAL SERVO ERROR: {}".format(e))
+    raise
 
 
 # =========================================================
-# STEP 4
-# HC-SR04
+# STEP 4 - HC-SR04
 # =========================================================
+
+boot_log("[BOOT] STEP 4 - HC-SR04")
 
 try:
-
-    show_step(
-        4,
-        7,
-        "HC-SR04",
-        "INIT..."
-    )
 
     sensor = HCSR04(
         config.TRIG_PIN,
@@ -493,31 +188,38 @@ try:
         config.MAX_DISTANCE_CM
     )
 
-    time.sleep_ms(200)
+    # 做一次测试测距
+    test_distance = sensor.distance_cm()
 
-    show_ok()
+    boot_log(
+        "[BOOT] HC-SR04 OK, distance={}".format(
+            test_distance
+        )
+    )
+
+    show_tft(
+        tft,
+        "ESP32 RADAR",
+        "SERVO OK",
+        "HC-SR04 OK",
+        "DIST: {}".format(test_distance)
+    )
+
+    time.sleep_ms(500)
 
 except Exception as e:
 
-    show_error(e)
-
-    while True:
-        time.sleep(1)
+    boot_log("FATAL HC-SR04 ERROR: {}".format(e))
+    raise
 
 
 # =========================================================
-# STEP 5
-# Radar
+# STEP 5 - RADAR
 # =========================================================
+
+boot_log("[BOOT] STEP 5 - RADAR")
 
 try:
-
-    show_step(
-        5,
-        7,
-        "RADAR",
-        "INIT..."
-    )
 
     radar = Radar(
         servo,
@@ -526,7 +228,6 @@ try:
 
         min_angle=config.MIN_ANGLE,
         max_angle=config.MAX_ANGLE,
-
         step=config.SCAN_STEP,
 
         max_distance=config.RADAR_MAX_DISTANCE,
@@ -534,326 +235,288 @@ try:
         settle_ms=config.SERVO_SETTLE_MS
     )
 
-    time.sleep_ms(200)
+    boot_log("[BOOT] RADAR OK")
 
-    show_ok()
-
-except Exception as e:
-
-    show_error(e)
-
-    while True:
-        time.sleep(1)
-
-
-# =========================================================
-# STEP 6
-# WiFi
-# =========================================================
-
-show_step(
-    6,
-    7,
-    "WIFI",
-    "START..."
-)
-
-
-wifi_ok = False
-
-
-# 如果配置为 0，直接跳过
-if config.WIFI_TIMEOUT_S <= 0:
-
-    log(
-        "WiFi disabled by config"
+    show_tft(
+        tft,
+        "ESP32 RADAR",
+        "SERVO OK",
+        "SENSOR OK",
+        "RADAR OK"
     )
-
-    wifi_progress(
-        "TIMEOUT",
-        "SKIP WIFI"
-    )
-
-else:
-
-    try:
-
-        web = WebServer(
-            radar,
-            config.WIFI_SSID,
-            config.WIFI_PASSWORD,
-            config.WEB_PORT
-        )
-
-        wifi_ok = web.connect_wifi(
-            timeout_s=config.WIFI_TIMEOUT_S,
-            progress_callback=wifi_progress
-        )
-
-    except Exception as e:
-
-        print(
-            "WiFi exception:",
-            e
-        )
-
-        wifi_ok = False
-
-        wifi_progress(
-            "ERROR",
-            str(e)
-        )
-
-
-# =========================================================
-# Web Server
-# =========================================================
-
-if wifi_ok:
-
-    log(
-        "Starting web server..."
-    )
-
-    try:
-
-        if web.start():
-
-            log(
-                "Web server OK"
-            )
-
-        else:
-
-            log(
-                "Web server skipped"
-            )
-
-    except Exception as e:
-
-        print(
-            "Web server error:",
-            e
-        )
-
-
-else:
-
-    log(
-        "WiFi unavailable."
-    )
-
-    log(
-        "Radar will run OFFLINE."
-    )
-
-
-# =========================================================
-# STEP 7
-# Radar background
-# =========================================================
-
-try:
-
-    show_step(
-        7,
-        7,
-        "RADAR",
-        "DRAWING..."
-    )
-
-    radar.draw_background()
-
-    time.sleep_ms(300)
-
-    show_ok()
 
     time.sleep_ms(500)
 
 except Exception as e:
 
-    show_error(e)
-
-    while True:
-        time.sleep(1)
+    boot_log("FATAL RADAR ERROR: {}".format(e))
+    raise
 
 
 # =========================================================
-# SYSTEM READY
+# STEP 6 - WIFI
 # =========================================================
 
-log("")
-log("================================")
-log(" SYSTEM READY")
-log("================================")
+boot_log("[BOOT] STEP 6 - WIFI")
 
-if wifi_ok:
-
-    log(
-        "WEB: http://{}".format(
-            web.ip
-        )
-    )
-
-else:
-
-    log(
-        "WEB: OFFLINE"
-    )
+web = None
+wifi_ok = False
 
 
-# =========================================================
-# READY SCREEN
-# =========================================================
+def wifi_progress(message):
+
+    print("[WIFI]", message)
+
+    try:
+
+        # 连接过程中的文字必须使用 ASCII
+        if message == "CONNECTING":
+
+            show_tft(
+                tft,
+                "ESP32 RADAR",
+                "RADAR OK",
+                "WIFI CONNECTING",
+                "PLEASE WAIT..."
+            )
+
+        elif message == "CONNECTED":
+
+            show_tft(
+                tft,
+                "ESP32 RADAR",
+                "RADAR OK",
+                "WIFI CONNECTED",
+                "WEB ONLINE"
+            )
+
+        elif message == "TIMEOUT":
+
+            show_tft(
+                tft,
+                "ESP32 RADAR",
+                "WIFI TIMEOUT",
+                "SKIP WIFI",
+                "LOCAL MODE"
+            )
+
+        elif message == "ERROR":
+
+            show_tft(
+                tft,
+                "ESP32 RADAR",
+                "WIFI ERROR",
+                "SKIP WIFI",
+                "LOCAL MODE"
+            )
+
+    except Exception as e:
+
+        print("WIFI TFT ERROR:", e)
+
 
 try:
 
-    tft.fill(
-        0x0000
+    web = WebServer(
+        radar,
+        config.WIFI_SSID,
+        config.WIFI_PASSWORD,
+        config.WEB_PORT
     )
 
-    tft_text(
-        "ESP32 RADAR",
-        5,
-        20,
-        0x07E0
-    )
-
-    tft_text(
-        "SYSTEM READY",
-        5,
-        45,
-        0x07E0
+    wifi_ok = web.connect_wifi(
+        timeout_s=config.WIFI_TIMEOUT_S,
+        progress_callback=wifi_progress
     )
 
     if wifi_ok:
 
-        tft_text(
-            "WIFI: ONLINE",
-            5,
+        boot_log("[BOOT] WIFI CONNECTED")
+
+        try:
+
+            web.start()
+
+            boot_log("[BOOT] WEB SERVER STARTED")
+
+        except Exception as e:
+
+            boot_log(
+                "[BOOT] WEB SERVER ERROR: {}".format(e)
+            )
+
+            wifi_ok = False
+
+    else:
+
+        boot_log(
+            "[BOOT] WIFI FAILED - LOCAL MODE"
+        )
+
+except Exception as e:
+
+    boot_log(
+        "[BOOT] WIFI INIT ERROR: {}".format(e)
+    )
+
+    wifi_ok = False
+
+
+# =========================================================
+# STEP 7 - READY
+# =========================================================
+
+boot_log("")
+boot_log("================================")
+boot_log(" SYSTEM READY")
+boot_log("================================")
+
+if wifi_ok:
+
+    boot_log("[BOOT] WIFI: ONLINE")
+
+    try:
+
+        ip = web.get_ip()
+
+        boot_log(
+            "[BOOT] IP: {}".format(ip)
+        )
+
+        boot_log(
+            "[BOOT] WEB: http://{}".format(ip)
+        )
+
+    except Exception as e:
+
+        boot_log(
+            "[BOOT] IP INFO ERROR: {}".format(e)
+        )
+
+else:
+
+    boot_log("[BOOT] WIFI: OFFLINE")
+    boot_log("[BOOT] RADAR: LOCAL MODE")
+
+
+# =========================================================
+# TFT READY SCREEN
+# =========================================================
+
+try:
+
+    tft.fill(0x0000)
+
+    tft.text(
+        "ESP32 RADAR",
+        45,
+        15,
+        0x07E0,
+        2
+    )
+
+    tft.text(
+        "SYSTEM READY",
+        55,
+        50,
+        0xFFFF,
+        1
+    )
+
+    if wifi_ok:
+
+        tft.text(
+            "WIFI ONLINE",
+            60,
             70,
-            0x07E0
-        )
-
-        tft_text(
-            "IP:",
-            5,
-            90,
-            0xFFFF
-        )
-
-        tft_text(
-            str(web.ip)[:24],
-            5,
-            105,
-            0xFFFF
+            0x07E0,
+            1
         )
 
     else:
 
-        tft_text(
-            "WIFI: OFFLINE",
-            5,
-            75,
-            0xF800
+        tft.text(
+            "WIFI OFFLINE",
+            55,
+            70,
+            0xF800,
+            1
         )
 
-        tft_text(
-            "RADAR LOCAL MODE",
-            5,
-            100,
-            0xFFFF
+        tft.text(
+            "LOCAL MODE",
+            65,
+            90,
+            0xFFFF,
+            1
         )
-
-
-    tft_text(
-        "STARTING SCAN...",
-        5,
-        130,
-        0xFFFF
-    )
 
     time.sleep_ms(1000)
 
 except Exception as e:
 
-    print(
-        "Ready screen error:",
-        e
-    )
+    print("READY SCREEN ERROR:", e)
 
 
 # =========================================================
-# START RADAR
+# AUTO START
 # =========================================================
 
 if config.AUTO_START:
 
-    log(
-        "Starting radar..."
-    )
+    boot_log("[BOOT] AUTO START RADAR")
 
     try:
 
         radar.start()
 
+        boot_log("[BOOT] RADAR SCAN STARTED")
+
     except Exception as e:
 
-        print(
-            "Radar start error:",
-            e
+        boot_log(
+            "[BOOT] RADAR START ERROR: {}".format(e)
         )
 
-        try:
+else:
 
-            tft.fill(
-                0x0000
-            )
-
-            tft_text(
-                "RADAR ERROR",
-                5,
-                50,
-                0xF800
-            )
-
-            tft_text(
-                str(e)[:30],
-                5,
-                75,
-                0xF800
-            )
-
-        except Exception:
-            pass
-
-        while True:
-            time.sleep(1)
+    boot_log("[BOOT] AUTO START DISABLED")
 
 
 # =========================================================
 # MAIN LOOP
 # =========================================================
 
-print()
-print("================================")
-print(" MAIN LOOP")
-print("================================")
-print()
+boot_log("")
+boot_log("[MAIN] ENTER MAIN LOOP")
+boot_log("")
 
 
 while True:
 
     try:
 
-        # 如果 WiFi 正常
-        # 才处理网页
-        if web is not None:
+        # -------------------------------------------------
+        # Web server
+        # -------------------------------------------------
 
-            web.handle()
+        if web is not None and wifi_ok:
 
+            try:
 
-        # 雷达扫描
+                web.handle()
+
+            except Exception as e:
+
+                print(
+                    "[WEB] HANDLE ERROR:",
+                    e
+                )
+
+        # -------------------------------------------------
+        # Radar
+        # -------------------------------------------------
+
         if radar.scanning:
 
             radar.scan_once()
@@ -862,13 +525,23 @@ while True:
 
             time.sleep_ms(5)
 
+    except KeyboardInterrupt:
+
+        print("")
+        print("================================")
+        print(" RADAR STOPPED")
+        print("================================")
+
+        try:
+            servo.release()
+        except:
+            pass
+
+        break
 
     except Exception as e:
 
-        print(
-            "MAIN LOOP ERROR:",
-            e
-        )
+        print("")
+        print("[MAIN LOOP ERROR]", e)
 
-        # 不让一个网页/扫描异常直接死机
         time.sleep_ms(100)
