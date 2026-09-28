@@ -1,10 +1,17 @@
 # ESP32 Wi-Fi Ultrasonic Radar
+<p align="center">
+  <img src="./img/image.jpg" width="800" alt="最终实物图">
+</p>
 
 基于 **ESP32 + MicroPython + MG90S + HC-SR04 + ST7789 TFT** 实现的无线超声波雷达系统。
 
 系统通过 MG90S 舵机带动 HC-SR04 超声波传感器进行水平扫描，ESP32 在 ST7789 TFT 屏幕上实时绘制雷达界面，同时通过 Wi-Fi 与 PC 通信。
 
 PC 端运行 Web Server，用户可以通过浏览器实时查看雷达数据，并控制雷达启动、停止、清屏以及扫描步进角度。
+
+
+> [!IMPORTANT]
+> 当前版本暂不支持离线模式。如果 ESP 未找到或无法连接预设的 Wi-Fi，会导致在烧录main文件后卡死！
 
 ---
 
