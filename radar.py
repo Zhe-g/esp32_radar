@@ -4,10 +4,6 @@ import time
 
 class Radar:
 
-    # =========================================================
-    # Colors RGB565
-    # =========================================================
-
     BLACK = 0x0000
     WHITE = 0xFFFF
 
@@ -19,9 +15,6 @@ class Radar:
 
     CENTER_COLOR = 0x07E0
 
-    # =========================================================
-    # Constructor
-    # =========================================================
 
     def __init__(
         self,
@@ -36,63 +29,56 @@ class Radar:
     ):
 
         self.servo = servo
+
         self.sensor = sensor
+
         self.tft = tft
 
+
         self.min_angle = min_angle
+
         self.max_angle = max_angle
 
         self.step = step
 
-        self.max_distance = max_distance
+        self.max_distance = \
+            max_distance
 
         self.settle_ms = settle_ms
 
-        # =====================================================
-        # Radar center
-        # =====================================================
 
-        self.cx = self.tft.width // 2
+        self.cx = \
+            self.tft.width // 2
 
-        self.cy = self.tft.height - 15
+        self.cy = \
+            self.tft.height - 15
+
 
         self.radius = min(
             self.tft.width // 2 - 5,
             self.tft.height - 30
         )
 
-        # =====================================================
-        # Scan state
-        # =====================================================
 
-        self.angle = self.min_angle
+        self.angle = \
+            self.min_angle
 
         self.direction = 1
 
         self.scanning = False
 
-        # =====================================================
-        # Current scan targets
-        #
-        # 只保存当前这一轮扫描
-        # =====================================================
-
         self.targets = []
-
-        # =====================================================
-        # Statistics
-        # =====================================================
 
         self.scan_count = 0
 
         self.last_distance = -1
 
-        # 上一次扫描线角度
         self.last_line_angle = None
 
-    # =========================================================
-    # Start
-    # =========================================================
+
+    # =====================================================
+    # 启动
+    # =====================================================
 
     def start(self):
 
@@ -110,23 +96,19 @@ class Radar:
 
         self.last_line_angle = None
 
-        # 绘制初始雷达
+
         self.draw_background()
 
-        # 舵机移动到起点
         self.servo.move(
             self.angle
         )
 
         print("[RADAR] START")
 
-    # =========================================================
-    # Polar -> XY
-    #
-    # 0°   左
-    # 90°  上
-    # 180° 右
-    # =========================================================
+
+    # =====================================================
+    # 坐标转换
+    # =====================================================
 
     def polar_to_xy(
         self,
@@ -134,34 +116,39 @@ class Radar:
         distance
     ):
 
-        rad = math.radians(angle)
+        rad = math.radians(
+            angle
+        )
 
         x = int(
-            self.cx +
-            math.cos(rad) * distance
+            self.cx
+            +
+            math.cos(rad)
+            * distance
         )
 
         y = int(
-            self.cy -
-            math.sin(rad) * distance
+            self.cy
+            -
+            math.sin(rad)
+            * distance
         )
 
         return x, y
 
-    # =========================================================
-    # Draw radar background
-    # =========================================================
+
+    # =====================================================
+    # 绘制雷达背景
+    # =====================================================
 
     def draw_background(self):
 
-        # 整个屏幕清黑
         self.tft.fill(
             self.BLACK
         )
 
-        # =====================================================
-        # Radar circles
-        # =====================================================
+
+        # 同心圆
 
         self.tft.circle(
             self.cx,
@@ -191,9 +178,8 @@ class Radar:
             self.GRID_COLOR
         )
 
-        # =====================================================
-        # Angle lines
-        # =====================================================
+
+        # 角度线
 
         angles = (
             self.min_angle,
@@ -204,6 +190,7 @@ class Radar:
             150,
             self.max_angle
         )
+
 
         for angle in angles:
 
@@ -220,9 +207,8 @@ class Radar:
                 self.GRID_COLOR
             )
 
-        # =====================================================
-        # Center
-        # =====================================================
+
+        # 中心点
 
         self.tft.fill_rect(
             self.cx - 2,
@@ -232,9 +218,10 @@ class Radar:
             self.CENTER_COLOR
         )
 
-    # =========================================================
-    # 判断像素是不是雷达网格
-    # =========================================================
+
+    # =====================================================
+    # 背景像素恢复
+    # =====================================================
 
     def background_pixel(
         self,
@@ -251,13 +238,11 @@ class Radar:
             dy * dy
         )
 
-        # 超出雷达范围
+
         if distance > self.radius + 1:
+
             return self.BLACK
 
-        # =====================================================
-        # 圆弧
-        # =====================================================
 
         circles = (
             self.radius,
@@ -266,15 +251,15 @@ class Radar:
             self.radius * 0.25
         )
 
+
         for r in circles:
 
-            if abs(distance - r) <= 1.0:
+            if abs(
+                distance - r
+            ) <= 1.0:
 
                 return self.GRID_COLOR
 
-        # =====================================================
-        # 角度线
-        # =====================================================
 
         if distance > 2:
 
@@ -285,8 +270,11 @@ class Radar:
                 )
             )
 
+
             if angle < 0:
+
                 angle += 360
+
 
             angles = (
                 self.min_angle,
@@ -298,28 +286,31 @@ class Radar:
                 self.max_angle
             )
 
+
             for a in angles:
 
-                if abs(angle - a) <= 0.6:
+                if abs(
+                    angle - a
+                ) <= 0.6:
 
                     return self.GRID_COLOR
 
-        # =====================================================
-        # Center
-        # =====================================================
 
         if (
-            abs(dx) <= 2 and
+            abs(dx) <= 2
+            and
             abs(dy) <= 2
         ):
 
             return self.CENTER_COLOR
 
+
         return self.BLACK
 
-    # =========================================================
-    # Restore one pixel
-    # =========================================================
+
+    # =====================================================
+    # 恢复扫描线
+    # =====================================================
 
     def restore_pixel(
         self,
@@ -327,22 +318,29 @@ class Radar:
         y
     ):
 
-        if x < 0:
+        if (
+            x < 0
+            or
+            x >= self.tft.width
+        ):
+
             return
 
-        if x >= self.tft.width:
+
+        if (
+            y < 0
+            or
+            y >= self.tft.height
+        ):
+
             return
 
-        if y < 0:
-            return
-
-        if y >= self.tft.height:
-            return
 
         color = self.background_pixel(
             x,
             y
         )
+
 
         self.tft.pixel(
             x,
@@ -350,31 +348,32 @@ class Radar:
             color
         )
 
-    # =========================================================
-    # Erase previous scan line
-    #
-    # 不再简单使用黑线。
-    #
-    # 而是恢复成雷达背景。
-    # =========================================================
+
+    # =====================================================
+    # 删除旧扫描线
+    # =====================================================
 
     def erase_scan_line(self):
 
         if self.last_line_angle is None:
+
             return
 
-        angle = self.last_line_angle
 
-        # 使用和 line() 一样的 Bresenham 算法
-        # 保证擦除的像素和之前画线的像素完全一致。
+        angle = \
+            self.last_line_angle
+
 
         x1, y1 = self.polar_to_xy(
             angle,
             self.radius
         )
 
+
         x0 = self.cx
+
         y0 = self.cy
+
 
         dx = abs(x1 - x0)
 
@@ -386,6 +385,7 @@ class Radar:
 
         err = dx + dy
 
+
         while True:
 
             self.restore_pixel(
@@ -393,33 +393,39 @@ class Radar:
                 y0
             )
 
+
             if (
-                x0 == x1 and
+                x0 == x1
+                and
                 y0 == y1
             ):
+
                 break
 
+
             e2 = 2 * err
+
 
             if e2 >= dy:
 
                 err += dy
+
                 x0 += sx
+
 
             if e2 <= dx:
 
                 err += dx
+
                 y0 += sy
 
-        # =====================================================
-        # 恢复目标点
-        # =====================================================
 
         self.redraw_targets()
 
-    # =========================================================
-    # Draw current scan line
-    # =========================================================
+
+    # =====================================================
+    # 绘制扫描线
+    # =====================================================
 
     def draw_scan_line(self):
 
@@ -427,6 +433,7 @@ class Radar:
             self.angle,
             self.radius
         )
+
 
         self.tft.line(
             self.cx,
@@ -436,11 +443,14 @@ class Radar:
             self.SCAN_COLOR
         )
 
-        self.last_line_angle = self.angle
 
-    # =========================================================
-    # Add target
-    # =========================================================
+        self.last_line_angle = \
+            self.angle
+
+
+    # =====================================================
+    # 添加目标
+    # =====================================================
 
     def add_target(
         self,
@@ -448,7 +458,6 @@ class Radar:
         distance
     ):
 
-        # 当前轮扫描中保存
         self.targets.append(
             (
                 angle,
@@ -456,14 +465,15 @@ class Radar:
             )
         )
 
-        # 当前轮最多 30 个
+
         if len(self.targets) > 30:
 
             self.targets.pop(0)
 
-    # =========================================================
-    # Draw target
-    # =========================================================
+
+    # =====================================================
+    # 绘制目标
+    # =====================================================
 
     def draw_target(
         self,
@@ -471,38 +481,48 @@ class Radar:
         distance
     ):
 
-        if distance <= 0:
+        if (
+            distance <= 0
+            or
+            distance > self.max_distance
+        ):
+
             return
 
-        if distance > self.max_distance:
-            return
 
-        # 实际距离 -> 雷达半径
         display_distance = int(
-            distance /
-            self.max_distance *
+            distance
+            /
+            self.max_distance
+            *
             self.radius
         )
+
 
         x, y = self.polar_to_xy(
             angle,
             display_distance
         )
 
-        # 边界检查
-        if x < 3:
+
+        if (
+            x < 3
+            or
+            x >= self.tft.width - 3
+        ):
+
             return
 
-        if x >= self.tft.width - 3:
+
+        if (
+            y < 3
+            or
+            y >= self.tft.height - 3
+        ):
+
             return
 
-        if y < 3:
-            return
 
-        if y >= self.tft.height - 3:
-            return
-
-        # 5x5 红点
         self.tft.fill_rect(
             x - 2,
             y - 2,
@@ -511,9 +531,10 @@ class Radar:
             self.TARGET_COLOR
         )
 
-    # =========================================================
-    # Redraw targets
-    # =========================================================
+
+    # =====================================================
+    # 重新绘制所有目标
+    # =====================================================
 
     def redraw_targets(self):
 
@@ -524,50 +545,41 @@ class Radar:
                 distance
             )
 
-    # =========================================================
-    # Clear all targets
-    #
-    # 通过重新绘制背景彻底删除
-    # =========================================================
+
+    # =====================================================
+    # 清除目标
+    # =====================================================
 
     def clear_targets(self):
 
         self.targets = []
 
-        # 重新画完整雷达
         self.draw_background()
 
-        # 当前扫描线重新画回来
+
         if self.scanning:
 
             self.draw_scan_line()
 
-    # =========================================================
-    # Scan once
-    # =========================================================
+
+    # =====================================================
+    # 单次扫描
+    # =====================================================
 
     def scan_once(self):
 
         if not self.scanning:
+
             return
 
-        # =====================================================
-        # 1. 删除上一条扫描线
-        # =====================================================
 
         self.erase_scan_line()
 
-        # =====================================================
-        # 2. Servo
-        # =====================================================
 
         self.servo.move(
             self.angle
         )
 
-        # =====================================================
-        # 3. Wait
-        # =====================================================
 
         if self.settle_ms > 0:
 
@@ -575,22 +587,18 @@ class Radar:
                 self.settle_ms
             )
 
-        # =====================================================
-        # 4. Ultrasonic measurement
-        # =====================================================
 
-        distance = (
+        distance = \
             self.sensor.distance_cm()
-        )
 
-        self.last_distance = distance
 
-        # =====================================================
-        # 5. Target
-        # =====================================================
+        self.last_distance = \
+            distance
+
 
         if (
-            distance > 0 and
+            distance > 0
+            and
             distance <= self.max_distance
         ):
 
@@ -599,18 +607,13 @@ class Radar:
                 distance
             )
 
-        # =====================================================
-        # 6. Draw current scan line
-        # =====================================================
 
         self.draw_scan_line()
 
-        # =====================================================
-        # 7. Draw newest target
-        # =====================================================
 
         if (
-            distance > 0 and
+            distance > 0
+            and
             distance <= self.max_distance
         ):
 
@@ -619,55 +622,74 @@ class Radar:
                 distance
             )
 
-        # =====================================================
-        # 8. Next angle
-        # =====================================================
 
         self.angle += (
-            self.direction *
+            self.direction
+            *
             self.step
         )
 
-        # =====================================================
-        # 9. Right boundary
-        # =====================================================
 
         if self.angle >= self.max_angle:
 
-            self.angle = self.max_angle
+            self.angle = \
+                self.max_angle
 
             self.direction = -1
 
-        # =====================================================
-        # 10. Left boundary
-        # =====================================================
 
         elif self.angle <= self.min_angle:
 
-            self.angle = self.min_angle
+            self.angle = \
+                self.min_angle
 
             self.direction = 1
 
-            # =================================================
-            # 完成一整轮
-            # =================================================
 
             self.scan_count += 1
+
 
             print(
                 "[RADAR] SCAN",
                 self.scan_count
             )
 
-            # =================================================
-            # 清除上一轮所有红点
-            # =================================================
 
             self.clear_targets()
 
-    # =========================================================
-    # Clear
-    # =========================================================
+
+    # =====================================================
+    # 设置步进
+    # =====================================================
+
+    def set_step(
+        self,
+        step
+    ):
+
+        step = int(step)
+
+        if step < 1:
+
+            step = 1
+
+        if step > 20:
+
+            step = 20
+
+
+        self.step = step
+
+
+        print(
+            "[RADAR] STEP =",
+            self.step
+        )
+
+
+    # =====================================================
+    # 清除
+    # =====================================================
 
     def clear(self):
 
@@ -679,15 +701,15 @@ class Radar:
 
         self.draw_background()
 
-    # =========================================================
-    # Stop
-    # =========================================================
+
+    # =====================================================
+    # 停止
+    # =====================================================
 
     def stop(self):
 
         self.scanning = False
 
-        # 停止后重新绘制干净背景
         self.draw_background()
 
         self.targets = []
@@ -696,16 +718,20 @@ class Radar:
 
         print("[RADAR] STOP")
 
-    # =========================================================
-    # Nearest target
-    # =========================================================
+
+    # =====================================================
+    # 最近目标
+    # =====================================================
 
     def get_nearest(self):
 
         if not self.targets:
+
             return None
 
+
         nearest = self.targets[0]
+
 
         for target in self.targets:
 
@@ -713,22 +739,42 @@ class Radar:
 
                 nearest = target
 
+
         return nearest
 
-    # =========================================================
-    # Status
-    # =========================================================
 
-    def status(self):
+    # =====================================================
+    # 获取 Web 数据
+    # =====================================================
 
-        nearest = self.get_nearest()
+    def get_data(self):
+
+        nearest = \
+            self.get_nearest()
+
 
         return {
-            "scanning": self.scanning,
-            "angle": self.angle,
-            "direction": self.direction,
-            "distance": self.last_distance,
-            "target_count": len(self.targets),
-            "nearest": nearest,
-            "scan_count": self.scan_count
+
+            "type": "data",
+
+            "scanning":
+                self.scanning,
+
+            "angle":
+                self.angle,
+
+            "distance":
+                self.last_distance,
+
+            "nearest":
+                nearest[1]
+                if nearest
+                else -1,
+
+            "points":
+                self.targets,
+
+            "scan_count":
+                self.scan_count
+
         }
