@@ -1,0 +1,1073 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>ESP32 Radar</title>
+
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+
+            background:
+                radial-gradient(circle at center,
+                    #071b18 0%,
+                    #03100e 45%,
+                    #010706 100%);
+
+            color: #d8fff8;
+
+            font-family:
+                "Segoe UI",
+                "Microsoft YaHei",
+                sans-serif;
+
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .container {
+            width: min(1100px, 95vw);
+
+            display: grid;
+            grid-template-columns: minmax(500px, 1fr) 300px;
+
+            gap: 25px;
+
+            padding: 25px;
+        }
+
+        /* ==============================
+           雷达区域
+           ============================== */
+
+        .radar-panel {
+            position: relative;
+
+            background: rgba(0, 20, 17, 0.85);
+
+            border: 1px solid #0c665a;
+
+            border-radius: 18px;
+
+            padding: 20px;
+
+            box-shadow:
+                0 0 30px rgba(0, 255, 210, 0.08);
+        }
+
+        .title {
+            text-align: center;
+
+            font-size: 25px;
+
+            letter-spacing: 4px;
+
+            color: #6effe7;
+
+            margin-bottom: 15px;
+
+            text-shadow:
+                0 0 10px rgba(0, 255, 220, 0.6);
+        }
+
+        .radar-wrapper {
+            width: 100%;
+
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        #radar {
+            width: min(650px, 100%);
+            aspect-ratio: 1 / 1;
+
+            display: block;
+
+            border-radius: 50%;
+
+            background: #020b09;
+
+            box-shadow:
+                0 0 35px rgba(0, 255, 200, 0.08);
+        }
+
+        /* ==============================
+           右侧控制面板
+           ============================== */
+
+        .control-panel {
+            background: rgba(0, 20, 17, 0.85);
+
+            border: 1px solid #0c665a;
+
+            border-radius: 18px;
+
+            padding: 20px;
+
+            display: flex;
+
+            flex-direction: column;
+
+            gap: 15px;
+        }
+
+        .section-title {
+            color: #62ffe8;
+
+            font-size: 16px;
+
+            margin-bottom: 5px;
+
+            letter-spacing: 2px;
+        }
+
+        .status {
+            padding: 15px;
+
+            background: rgba(0, 40, 34, 0.6);
+
+            border-radius: 12px;
+
+            border: 1px solid #0d4e46;
+        }
+
+        .status-row {
+            display: flex;
+
+            justify-content: space-between;
+
+            padding: 7px 0;
+
+            border-bottom: 1px solid rgba(100, 255, 230, 0.08);
+        }
+
+        .status-row:last-child {
+            border-bottom: none;
+        }
+
+        .label {
+            color: #7da9a2;
+        }
+
+        .value {
+            color: #6effdf;
+
+            font-weight: bold;
+        }
+
+        .distance {
+            font-size: 28px;
+
+            color: #ff5757;
+
+            text-align: center;
+
+            padding: 10px;
+        }
+
+        /* ==============================
+           按钮
+           ============================== */
+
+        .buttons {
+            display: grid;
+
+            grid-template-columns: 1fr 1fr;
+
+            gap: 10px;
+        }
+
+        button {
+            border: none;
+
+            border-radius: 10px;
+
+            padding: 12px;
+
+            font-size: 15px;
+
+            font-weight: bold;
+
+            cursor: pointer;
+
+            color: #00100d;
+
+            background: #55e8d2;
+
+            transition: 0.15s;
+        }
+
+        button:hover {
+            transform: translateY(-1px);
+
+            filter: brightness(1.15);
+        }
+
+        button:active {
+            transform: translateY(1px);
+        }
+
+        .stop {
+            background: #ff6969;
+        }
+
+        .clear {
+            background: #c7d5d2;
+        }
+
+        /* ==============================
+           参数设置
+           ============================== */
+
+        .setting {
+            display: flex;
+
+            flex-direction: column;
+
+            gap: 7px;
+        }
+
+        input[type="number"] {
+            width: 100%;
+
+            padding: 10px;
+
+            border-radius: 8px;
+
+            border: 1px solid #185c53;
+
+            background: #03100e;
+
+            color: #bffff5;
+
+            outline: none;
+
+            font-size: 15px;
+        }
+
+        input[type="number"]:focus {
+            border-color: #55e8d2;
+        }
+
+        .connection {
+            text-align: center;
+
+            padding: 10px;
+
+            border-radius: 8px;
+
+            background: #301111;
+
+            color: #ff7777;
+        }
+
+        .connection.connected {
+            background: #08382f;
+
+            color: #65ffce;
+        }
+
+        .footer {
+            text-align: center;
+
+            color: #52736e;
+
+            font-size: 12px;
+
+            margin-top: auto;
+        }
+
+        @media (max-width: 850px) {
+
+            .container {
+                grid-template-columns: 1fr;
+            }
+
+            .control-panel {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+<div class="container">
+
+    <!-- ==========================
+         雷达
+         ========================== -->
+
+    <div class="radar-panel">
+
+        <div class="title">
+            ESP32 RADAR
+        </div>
+
+        <div class="radar-wrapper">
+            <canvas id="radar" width="700" height="700"></canvas>
+        </div>
+
+    </div>
+
+
+    <!-- ==========================
+         控制面板
+         ========================== -->
+
+    <div class="control-panel">
+
+        <div class="section-title">
+            SYSTEM STATUS
+        </div>
+
+        <div id="connection" class="connection">
+            正在连接...
+        </div>
+
+        <div class="status">
+
+            <div class="status-row">
+                <span class="label">扫描状态</span>
+                <span id="scanStatus" class="value">停止</span>
+            </div>
+
+            <div class="status-row">
+                <span class="label">扫描角度</span>
+                <span id="angle" class="value">--°</span>
+            </div>
+
+            <div class="status-row">
+                <span class="label">目标数量</span>
+                <span id="targetCount" class="value">0</span>
+            </div>
+
+            <div class="status-row">
+                <span class="label">扫描次数</span>
+                <span id="scanCount" class="value">0</span>
+            </div>
+
+        </div>
+
+
+        <div class="section-title">
+            DISTANCE
+        </div>
+
+        <div id="distance" class="distance">
+            -- cm
+        </div>
+
+
+        <div class="status">
+
+            <div class="status-row">
+                <span class="label">最近目标</span>
+                <span id="nearest" class="value">-- cm</span>
+            </div>
+
+        </div>
+
+
+        <div class="section-title">
+            CONTROL
+        </div>
+
+        <div class="buttons">
+
+            <button onclick="sendCommand('start')">
+                START
+            </button>
+
+            <button
+                class="stop"
+                onclick="sendCommand('stop')">
+                STOP
+            </button>
+
+            <button
+                class="clear"
+                onclick="sendCommand('clear')">
+                CLEAR
+            </button>
+
+        </div>
+
+
+        <div class="section-title">
+            SETTINGS
+        </div>
+
+        <div class="setting">
+
+            <label>
+                扫描步进角度
+            </label>
+
+            <input
+                id="step"
+                type="number"
+                min="1"
+                max="20"
+                value="5"
+            >
+
+            <button onclick="applySettings()">
+                APPLY
+            </button>
+
+        </div>
+
+
+        <div class="footer">
+            ESP32 + HC-SR04 + MG90S + ST7789
+        </div>
+
+    </div>
+
+</div>
+
+
+<script>
+
+    // =========================================================
+    // Canvas
+    // =========================================================
+
+    const canvas = document.getElementById("radar");
+
+    const ctx = canvas.getContext("2d");
+
+    const W = canvas.width;
+    const H = canvas.height;
+
+    const cx = W / 2;
+
+    const cy = H - 45;
+
+    const radius = Math.min(
+        W / 2 - 30,
+        H - 70
+    );
+
+
+    // =========================================================
+    // 雷达数据
+    // =========================================================
+
+    let radarData = {
+
+        scanning: false,
+
+        angle: 10,
+
+        distance: -1,
+
+        nearest: -1,
+
+        points: [],
+
+        scan_count: 0
+
+    };
+
+
+    // =========================================================
+    // 坐标转换
+    // =========================================================
+
+    function polarToXY(angle, distance) {
+
+        const rad =
+            angle * Math.PI / 180;
+
+        const x =
+            cx + Math.cos(rad) * distance;
+
+        const y =
+            cy - Math.sin(rad) * distance;
+
+        return {
+            x: x,
+            y: y
+        };
+    }
+
+
+    // =========================================================
+    // 绘制雷达背景
+    // =========================================================
+
+    function drawBackground() {
+
+        ctx.clearRect(
+            0,
+            0,
+            W,
+            H
+        );
+
+
+        // 背景
+
+        ctx.fillStyle = "#020b09";
+
+        ctx.fillRect(
+            0,
+            0,
+            W,
+            H
+        );
+
+
+        // 雷达圆
+
+        ctx.strokeStyle = "#0b665a";
+
+        ctx.lineWidth = 2;
+
+
+        const circles = [
+
+            radius,
+
+            radius * 0.75,
+
+            radius * 0.50,
+
+            radius * 0.25
+
+        ];
+
+
+        for (const r of circles) {
+
+            ctx.beginPath();
+
+            ctx.arc(
+                cx,
+                cy,
+                r,
+                Math.PI,
+                2 * Math.PI
+            );
+
+            ctx.stroke();
+
+        }
+
+
+        // 中心线
+
+        ctx.beginPath();
+
+        ctx.moveTo(
+            cx - radius,
+            cy
+        );
+
+        ctx.lineTo(
+            cx + radius,
+            cy
+        );
+
+        ctx.stroke();
+
+
+        // 角度线
+
+        const angles = [
+
+            10,
+            30,
+            60,
+            90,
+            120,
+            150,
+            170
+
+        ];
+
+
+        ctx.strokeStyle =
+            "rgba(20,160,140,0.45)";
+
+        ctx.lineWidth = 1;
+
+
+        for (const angle of angles) {
+
+            const p =
+                polarToXY(
+                    angle,
+                    radius
+                );
+
+            ctx.beginPath();
+
+            ctx.moveTo(
+                cx,
+                cy
+            );
+
+            ctx.lineTo(
+                p.x,
+                p.y
+            );
+
+            ctx.stroke();
+
+        }
+
+
+        // 中心点
+
+        ctx.fillStyle = "#55e8d2";
+
+        ctx.beginPath();
+
+        ctx.arc(
+            cx,
+            cy,
+            5,
+            0,
+            Math.PI * 2
+        );
+
+        ctx.fill();
+
+    }
+
+
+    // =========================================================
+    // 绘制扫描线
+    // =========================================================
+
+    function drawScanLine(angle) {
+
+        const p =
+            polarToXY(
+                angle,
+                radius
+            );
+
+
+        ctx.strokeStyle =
+            "#36ffe1";
+
+        ctx.lineWidth = 3;
+
+        ctx.shadowColor =
+            "#36ffe1";
+
+        ctx.shadowBlur = 12;
+
+
+        ctx.beginPath();
+
+        ctx.moveTo(
+            cx,
+            cy
+        );
+
+        ctx.lineTo(
+            p.x,
+            p.y
+        );
+
+        ctx.stroke();
+
+
+        ctx.shadowBlur = 0;
+
+    }
+
+
+    // =========================================================
+    // 绘制目标
+    // =========================================================
+
+    function drawTargets(points) {
+
+        if (!points) {
+            return;
+        }
+
+
+        for (const point of points) {
+
+            const angle =
+                Number(point[0]);
+
+            const distance =
+                Number(point[1]);
+
+
+            if (
+                distance <= 0 ||
+                distance > 200
+            ) {
+                continue;
+            }
+
+
+            // 200cm 映射到最大半径
+
+            const displayDistance =
+                distance / 200 * radius;
+
+
+            const p =
+                polarToXY(
+                    angle,
+                    displayDistance
+                );
+
+
+            ctx.fillStyle =
+                "#ff3030";
+
+            ctx.shadowColor =
+                "#ff3030";
+
+            ctx.shadowBlur = 12;
+
+
+            ctx.beginPath();
+
+            ctx.arc(
+                p.x,
+                p.y,
+                5,
+                0,
+                Math.PI * 2
+            );
+
+            ctx.fill();
+
+
+            ctx.shadowBlur = 0;
+
+        }
+
+    }
+
+
+    // =========================================================
+    // 绘制整个雷达
+    // =========================================================
+
+    function drawRadar() {
+
+        drawBackground();
+
+
+        // 红色目标
+
+        drawTargets(
+            radarData.points
+        );
+
+
+        // 当前扫描线
+
+        if (radarData.scanning) {
+
+            drawScanLine(
+                radarData.angle
+            );
+
+        }
+
+    }
+
+
+    // =========================================================
+    // 更新右侧数据显示
+    // =========================================================
+
+    function updateUI() {
+
+        document.getElementById(
+            "scanStatus"
+        ).textContent =
+            radarData.scanning
+                ? "扫描中"
+                : "停止";
+
+
+        document.getElementById(
+            "angle"
+        ).textContent =
+            Math.round(
+                radarData.angle
+            ) + "°";
+
+
+        document.getElementById(
+            "targetCount"
+        ).textContent =
+            radarData.points
+                ? radarData.points.length
+                : 0;
+
+
+        document.getElementById(
+            "scanCount"
+        ).textContent =
+            radarData.scan_count || 0;
+
+
+        if (
+            radarData.distance &&
+            radarData.distance > 0
+        ) {
+
+            document.getElementById(
+                "distance"
+            ).textContent =
+                Number(
+                    radarData.distance
+                ).toFixed(1) + " cm";
+
+        } else {
+
+            document.getElementById(
+                "distance"
+            ).textContent =
+                "-- cm";
+
+        }
+
+
+        if (
+            radarData.nearest &&
+            radarData.nearest > 0
+        ) {
+
+            document.getElementById(
+                "nearest"
+            ).textContent =
+                Number(
+                    radarData.nearest
+                ).toFixed(1) + " cm";
+
+        } else {
+
+            document.getElementById(
+                "nearest"
+            ).textContent =
+                "-- cm";
+
+        }
+
+    }
+
+
+    // =========================================================
+    // 从 PC server 获取 ESP32 数据
+    // =========================================================
+
+    async function updateData() {
+
+        try {
+
+            const response =
+                await fetch(
+                    "/data",
+                    {
+                        cache: "no-store"
+                    }
+                );
+
+
+            if (!response.ok) {
+
+                throw new Error(
+                    "HTTP " +
+                    response.status
+                );
+
+            }
+
+
+            const data =
+                await response.json();
+
+
+            radarData = data;
+
+
+            document
+                .getElementById("connection")
+                .textContent =
+                "ESP32 已连接";
+
+
+            document
+                .getElementById("connection")
+                .classList
+                .add("connected");
+
+
+            updateUI();
+
+            drawRadar();
+
+        }
+
+        catch (error) {
+
+            document
+                .getElementById("connection")
+                .textContent =
+                "ESP32 未连接";
+
+
+            document
+                .getElementById("connection")
+                .classList
+                .remove("connected");
+
+        }
+
+    }
+
+
+    // =========================================================
+    // 向 PC server 发送控制命令
+    // =========================================================
+
+    async function sendCommand(command) {
+
+        try {
+
+            await fetch(
+                "/command",
+                {
+                    method: "POST",
+
+                    headers: {
+                        "Content-Type":
+                            "application/json"
+                    },
+
+                    body: JSON.stringify({
+                        cmd: command
+                    })
+                }
+            );
+
+        }
+
+        catch (error) {
+
+            console.error(
+                "Command error:",
+                error
+            );
+
+        }
+
+    }
+
+
+    // =========================================================
+    // 修改扫描参数
+    // =========================================================
+
+    async function applySettings() {
+
+        const step =
+            Number(
+                document.getElementById(
+                    "step"
+                ).value
+            );
+
+
+        if (
+            step < 1 ||
+            step > 20
+        ) {
+
+            alert(
+                "步进角度必须为 1~20°"
+            );
+
+            return;
+
+        }
+
+
+        try {
+
+            await fetch(
+                "/command",
+                {
+                    method: "POST",
+
+                    headers: {
+                        "Content-Type":
+                            "application/json"
+                    },
+
+                    body: JSON.stringify({
+
+                        cmd: "config",
+
+                        step: step
+
+                    })
+                }
+            );
+
+        }
+
+        catch (error) {
+
+            console.error(
+                error
+            );
+
+        }
+
+    }
+
+
+    // =========================================================
+    // 初始化
+    // =========================================================
+
+    drawRadar();
+
+    updateData();
+
+
+    // 每 100ms 从 PC 获取一次数据
+    //
+    // 注意：
+    // 这里请求的是电脑的 server，
+    // 不是 ESP32。
+    //
+    // 所以不会再阻塞 ESP32 雷达。
+    //
+
+    setInterval(
+        updateData,
+        100
+    );
+
+</script>
+
+</body>
+</html>
